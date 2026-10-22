@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Satellite Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%231c4f7a'/%3E%3Cellipse cx='16' cy='16' rx='15' ry='5' fill='none' stroke='%230b1422' stroke-width='1.8' transform='rotate(-25 16 16)'/%3E%3Ccircle cx='28' cy='11' r='2.6' fill='%23ffd166'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- One shared copy of three.js for globe.gl and our own shader code -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://esm.sh/three@0.180.0",
+      "three/": "https://esm.sh/three@0.180.0/",
+      "globe.gl": "https://esm.sh/globe.gl@2.46.2?external=three",
+      "satellite.js": "https://esm.sh/satellite.js@6.0.2"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="globe" aria-label="Interactive 3D globe"></div>
+
+  <!-- Left: satellite picker, with layers pinned to the bottom -->
+  <div class="left-col">
+  <aside id="panel" class="panel">
+    <header class="panel-head">
+      <div>
+        <h1>Satellite Tracker</h1>
+        <p class="sub">Live positions from CelesTrak orbital data</p>
+      </div>
+      <button id="collapse" class="icon-btn" aria-label="Collapse panel" title="Collapse panel">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+
+    <div class="panel-body">
+      <section class="card">
+        <div class="section-head">
+          <h3>Satellites</h3>
+          <span class="head-btns">
+            <button class="select-all" id="select-all">Select all</button>
+            <button class="select-all" id="clear-all">Clear all</button>
+          </span>
+        </div>
+        <div id="sat-list"></div>
+      </section>
+
+      <p class="muted small credits">
+        Orbits &amp; catalog: <a href="https://celestrak.org" target="_blank" rel="noopener">CelesTrak</a> ·
+        Launches: <a href="https://thespacedevs.com" target="_blank" rel="noopener">The Space Devs</a> ·
+        Photos: <a href="https://en.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a> ·
+        Daily imagery: <a href="https://earthdata.nasa.gov/gibs" target="_blank" rel="noopener">NASA GIBS</a> ·
+        3D models: <a href="https://science.nasa.gov/3d-resources/" target="_blank" rel="noopener">NASA 3D Resources</a> ·
+        Globe: <a href="https://globe.gl" target="_blank" rel="noopener">globe.gl</a> ·
+        Imagery: NASA Blue Marble / Black Marble
+      </p>
+    </div>
+  </aside>
+
+    <aside class="panel layers-panel" id="layers-panel">
+      <header class="mini-head">
+        <h3>Layers</h3>
+        <button class="icon-btn small" data-collapse="layers" data-dir="down" aria-label="Collapse layers" title="Collapse"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </header>
+      <div class="collapsible-body">
+      <div class="layers">
+        <label class="toggle"><input type="checkbox" data-layer="orbits" checked /> <span>Orbit paths</span></label>
+        <label class="toggle"><input type="checkbox" data-layer="groundTrack" checked /> <span>Ground track</span></label>
+        <label class="toggle"><input type="checkbox" data-layer="footprint" checked /> <span>Visibility footprint</span></label>
+        <label class="toggle"><input type="checkbox" data-layer="labels" checked /> <span>Satellite labels</span></label>
+        <label class="toggle"><input type="checkbox" data-layer="sites" checked /> <span>Launch sites</span></label>
+      </div>
+      <div class="imagery">
+        <label for="imagery-select" class="imagery-label">Earth imagery</label>
+        <select id="imagery-select"></select>
+        <div id="imagery-date-row" class="imagery-date hidden">
+          <input type="date" id="imagery-date" aria-label="Imagery date" />
+          <span id="imagery-status" class="muted small"></span>
+        </div>
+        <p id="imagery-note" class="muted small imagery-note hidden"></p>
+      </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Right: clock + selected satellite, with launches pinned to the bottom -->
+  <div class="right-col">
+    <aside class="panel info-panel" id="info-panel">
+      <header class="mini-head">
+        <h3>Time &amp; details</h3>
+        <button class="icon-btn small" data-collapse="info" data-dir="up" aria-label="Collapse time and details" title="Collapse"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </header>
+      <div class="collapsible-body">
+      <section class="card clock">
+        <div class="clock-row">
+          <div>
+            <div id="clock-utc" class="mono big">--:--:--</div>
+            <div id="clock-date" class="muted small">UTC</div>
+          </div>
+          <span id="live-badge" class="badge live">LIVE</span>
+        </div>
+        <div class="speed" role="group" aria-label="Time speed">
+          <button id="pause-btn" class="pause" aria-label="Pause time" title="Pause">
+            <svg class="icon-pause" viewBox="0 0 24 24" width="14" height="14"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+            <svg class="icon-play" viewBox="0 0 24 24" width="14" height="14"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+          </button>
+          <button id="now-btn" class="now" title="Jump back to the current time">Now</button>
+          <button data-speed="60">60×</button>
+          <button data-speed="600">600×</button>
+          <button data-speed="3600">3600×</button>
+        </div>
+        <div class="muted small info-row pop-below">
+          <span id="sun-pos" class="mono">Subsolar point: –</span>
+          <span class="info-wrap">
+            <button class="info-btn" aria-expanded="false" aria-label="What is the subsolar point?">i</button>
+            <span class="info-pop" role="tooltip">
+              The spot on Earth where the Sun is directly overhead right now: it's noon there, with
+              the Sun straight up. It sweeps west about 15° every hour as Earth turns, and drifts
+              between the tropics (23.4° N and S) through the year.
+            </span>
+          </span>
+        </div>
+      </section>
+
+      <section id="telemetry" class="card telemetry hidden">
+        <figure id="sat-photo" class="photo hidden">
+          <img id="sat-img" alt="" />
+          <figcaption><a id="sat-img-link" target="_blank" rel="noopener">Wikipedia</a></figcaption>
+        </figure>
+        <div class="tele-head">
+          <span id="tele-dot" class="dot"></span>
+          <div>
+            <h2 id="tele-name">–</h2>
+            <p id="tele-info" class="muted small"></p>
+          </div>
+        </div>
+        <p id="tele-desc" class="desc"></p>
+
+        <h4>Live position</h4>
+        <dl class="grid">
+          <div><dt>Latitude</dt><dd id="t-lat" class="mono">–</dd></div>
+          <div><dt>Longitude</dt><dd id="t-lng" class="mono">–</dd></div>
+          <div><dt>Altitude</dt><dd id="t-alt" class="mono">–</dd></div>
+          <div><dt>Speed
+            <span class="units" role="group" aria-label="Speed units">
+              <button data-unit="kms" class="active">km/s</button><button data-unit="kmh">km/h</button>
+            </span></dt><dd id="t-spd" class="mono">–</dd></div>
+          <div><dt>Footprint radius</dt><dd id="t-fp" class="mono">–</dd></div>
+          <div><dt>Lighting</dt><dd><span id="t-sun">–</span><span id="t-ground" class="muted small block"></span></dd></div>
+        </dl>
+
+        <h4>Orbit</h4>
+        <dl class="grid">
+          <div class="wide"><dt>Orbit type</dt><dd id="t-type">–</dd></div>
+          <div><dt>Period</dt><dd id="t-per" class="mono">–</dd></div>
+          <div><dt>Inclination</dt><dd id="t-inc" class="mono">–</dd></div>
+          <div class="wide"><dt>Perigee <span class="hint">(closest point to Earth)</span></dt><dd id="t-peri" class="mono">–</dd></div>
+          <div class="wide"><dt>Apogee <span class="hint">(furthest point from Earth)</span></dt><dd id="t-apo" class="mono">–</dd></div>
+        </dl>
+
+        <h4>Mission</h4>
+        <dl class="grid">
+          <div class="wide"><dt>Owner / operator</dt><dd id="t-owner">–</dd></div>
+          <div class="wide"><dt>Country of origin</dt><dd id="t-country">–</dd></div>
+          <div><dt>Launch date</dt><dd id="t-ldate">–</dd></div>
+          <div><dt>Status</dt><dd id="t-status">–</dd></div>
+          <div class="wide"><dt>Launch site</dt><dd id="t-lsite">–</dd></div>
+        </dl>
+
+        <div class="muted small epoch info-row">
+          <span id="t-epoch"></span>
+          <span class="info-wrap">
+            <button class="info-btn" aria-expanded="false" aria-label="What is orbital data age?">i</button>
+            <span class="info-pop" role="tooltip">
+              How long ago the orbital measurements (a “TLE”) behind this position were taken.
+              Predictions are most accurate near that moment and drift slowly after it, typically a
+              few kilometres per day for low orbits. CelesTrak publishes fresh data every few hours,
+              and this page re-downloads it every 2 hours.
+            </span>
+          </span>
+        </div>
+        <p id="lock-status" class="small lock-status hidden"></p>
+        <p id="model-hint" class="muted small model-hint hidden">3D model available: use “Lock to” in the list, then scroll in close to see it.</p>
+      </section>
+
+      <section id="launch-card" class="card detail hidden">
+        <button class="back-btn hidden" data-back>← Back to satellite</button>
+        <figure id="launch-photo" class="photo hidden">
+          <img id="launch-img" alt="" />
+          <figcaption id="launch-credit"></figcaption>
+        </figure>
+        <div class="tele-head">
+          <span class="dot launch-dot"></span>
+          <div>
+            <h2 id="launch-name">–</h2>
+            <p id="launch-rocket" class="muted small"></p>
+          </div>
+        </div>
+        <div class="launch-hero">
+          <span id="launch-countdown" class="countdown mono"></span>
+          <span id="launch-status" class="launch-status"></span>
+        </div>
+        <p id="launch-status-desc" class="muted small"></p>
+        <dl class="grid" id="launch-grid"></dl>
+        <p id="launch-desc" class="desc"></p>
+      </section>
+
+      <section id="site-card" class="card detail hidden">
+        <button class="back-btn hidden" data-back>← Back to satellite</button>
+        <figure id="site-photo" class="photo hidden">
+          <img id="site-img" alt="" />
+          <figcaption><a id="site-img-link" target="_blank" rel="noopener">Wikipedia</a></figcaption>
+        </figure>
+        <div class="tele-head">
+          <span class="dot launch-dot"></span>
+          <div>
+            <h2 id="site-name">–</h2>
+            <p id="site-meta" class="muted small"></p>
+          </div>
+        </div>
+        <p id="site-desc" class="desc"></p>
+        <h4>Upcoming launches from here</h4>
+        <ul id="site-launches" class="site-launches"></ul>
+      </section>
+      </div>
+    </aside>
+
+    <aside class="panel launches-panel" id="launches-panel">
+      <header class="mini-head">
+        <h3 class="launches-title"><span class="launch-beacon" aria-hidden="true"></span>Upcoming launches</h3>
+        <button class="icon-btn small" data-collapse="launches" data-dir="down" aria-label="Collapse upcoming launches" title="Collapse"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </header>
+      <div class="collapsible-body">
+        <ol id="launch-list" class="launches"><li class="muted small">Loading…</li></ol>
+      </div>
+    </aside>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
